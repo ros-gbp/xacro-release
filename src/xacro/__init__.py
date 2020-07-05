@@ -43,8 +43,8 @@ import xml.dom.minidom
 from copy import deepcopy
 from .cli import process_args
 from .color import error, message, warning
-from .xmlutils import check_attrs, first_child_element, \
-    next_sibling_element, replace_node, reqd_attrs
+from .xmlutils import opt_attrs, reqd_attrs, first_child_element, \
+    next_sibling_element, replace_node
 
 
 try:  # python 2
