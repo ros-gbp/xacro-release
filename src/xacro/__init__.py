@@ -90,6 +90,20 @@ def abs_filename_spec(filename_spec):
     return filename_spec
 
 
+class YamlDictWrapper(object):
+    """Wrapper class providing dotted access to dict items"""
+    def __init__(self, d):
+        self.__d = d
+
+    def __getattr__(self, item):
+        try:
+            result = self.__d.__getitem__(item)
+            return YamlDictWrapper(result) if isinstance(result, dict) else result
+        except KeyError:
+            raise XacroException("No such key: '{}'".format(item))
+
+    __getitem__ = __getattr__
+
 def load_yaml(filename):
     try:
         import yaml
@@ -100,7 +114,7 @@ def load_yaml(filename):
     f = open(filename)
     oldstack = push_file(filename)
     try:
-        return yaml.safe_load(f)
+        return YamlDictWrapper(yaml.safe_load(f))
     finally:
         f.close()
         restore_filestack(oldstack)
@@ -137,14 +151,34 @@ class XacroException(Exception):
 
 
 verbosity = 1
+
+def check_attrs(tag, required, optional):
+    """
+    Helper routine to fetch required and optional attributes
+    and complain about any additional attributes.
+    :param tag (xml.dom.Element): DOM element node
+    :param required [str]: list of required attributes
+    :param optional [str]: list of optional attributes
+    """
+    result = reqd_attrs(tag, required)
+    result.extend(opt_attrs(tag, optional))
+    allowed = required + optional
+    extra = [a for a in tag.attributes.keys() if a not in allowed and not a.startswith("xmlns:")]
+    if extra:
+        warning("%s: unknown attribute(s): %s" % (tag.nodeName, ', '.join(extra)))
+        if verbosity > 0:
+            print_location(filestack)
+    return result
+
+
 # deprecate non-namespaced use of xacro tags (issues #41, #59, #60)
 def deprecated_tag(tag_name = None, _issued=[False]):
     if _issued[0]:
         return
 
+    _issued[0] = True
+    warning("Deprecated: xacro tag '{}' w/o 'xacro:' xml namespace prefix (will be forbidden in Noetic)".format(tag_name))
     if verbosity > 0:
-        _issued[0] = True
-        warning("Deprecated: xacro tag '{}' w/o 'xacro:' xml namespace prefix (will be forbidden in Noetic)".format(tag_name))
         print_location(filestack)
         message("""Use the following command to fix incorrect tag usage:
 find . -iname "*.xacro" | xargs sed -i 's#<\([/]\\?\)\(if\|unless\|include\|arg\|property\|macro\|insert_block\)#<\\1xacro:\\2#g'""")
@@ -418,6 +452,11 @@ def process_include(elt, macros, symbols, func):
             symbols = ns_symbols
         except TypeError:
             raise XacroException('namespaces are supported with in-order option only')
+
+    if first_child_element(elt):
+        warning("Child elements of a <xacro:include> tag are ignored")
+        if verbosity > 0:
+            print_location(filestack)
 
     for filename in get_include_files(filename_spec, symbols):
         # extend filestack
