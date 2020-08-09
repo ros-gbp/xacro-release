@@ -94,14 +94,11 @@ def abs_filename_spec(filename_spec):
     return filename_spec
 
 
-class YamlDictWrapper(object):
+class YamlDictWrapper(dict):
     """Wrapper class providing dotted access to dict items"""
-    def __init__(self, d):
-        self.__d = d
-
     def __getattr__(self, item):
         try:
-            result = self.__d.__getitem__(item)
+            result = super(YamlDictWrapper, self).__getitem__(item)
             return YamlDictWrapper(result) if isinstance(result, dict) else result
         except KeyError:
             raise XacroException("No such key: '{}'".format(item))
@@ -216,8 +213,12 @@ class Table(object):
             # remove single quotes from escaped string
             if len(value) >= 2 and value[0] == "'" and value[-1] == "'":
                 return value[1:-1]
-            # try to evaluate as number literal or boolean
-            # this is needed to handle numbers in property definitions as numbers, not strings
+            # Try to evaluate as number literal or boolean.
+            # This is needed to handle numbers in property definitions as numbers, not strings.
+            # python3 ignores/drops underscores in number literals (due to PEP515).
+            # Here, we want to handle literals with underscores as plain strings.
+            if '_' in value:
+                return value
             for f in [int, float, lambda x: get_boolean_value(x, None)]:  # order of types is important!
                 try:
                     return f(value)
