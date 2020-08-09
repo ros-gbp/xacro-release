@@ -1,3 +1,26 @@
+## xacro (noetic) - 1.14.4-1
+
+The packages in the `xacro` repository were released into the `noetic` distro by running `/usr/bin/bloom-release --rosdistro noetic xacro` on `Sun, 09 Aug 2020 17:48:34 -0000`
+
+The `xacro` package was released.
+
+Version of package(s) in repository `xacro`:
+
+- upstream repository: https://github.com/ros/xacro.git
+- release repository: https://github.com/ros-gbp/xacro-release.git
+- rosdistro version: `1.14.3-2`
+- old version: `1.14.3-2`
+- new version: `1.14.4-1`
+
+Versions of tools used:
+
+- bloom version: `0.9.7`
+- catkin_pkg version: `0.4.22`
+- rosdep version: `0.19.0`
+- rosdistro version: `0.8.2`
+- vcstools version: `0.1.42`
+
+
 ## xacro (melodic) - 1.13.7-1
 
 The packages in the `xacro` repository were released into the `melodic` distro by running `/usr/bin/bloom-release --rosdistro melodic xacro` on `Sun, 09 Aug 2020 17:38:12 -0000`
