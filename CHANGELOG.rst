@@ -2,22 +2,19 @@
 Changelog for package xacro
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-1.13.9 (2020-10-13)
+1.14.5 (2020-10-13)
 -------------------
-* [fix] yaml loading: recursively wrap lists and dicts for dotted dict access (`#258 <https://github.com/ros/xacro/issues/258>`_)
-* Contributors: Robert Haschke
-
-1.13.8 (2020-08-28)
--------------------
-* Provide support for yaml constructors !degrees and !radians (`#252 <https://github.com/ros/xacro/issues/252>`_)
+* [fix]     yaml loading: recursively wrap lists and dicts for dotted dict access (`#258 <https://github.com/ros/xacro/issues/258>`_)
+* [feature] Provide support for yaml constructors !degrees and !radians (`#252 <https://github.com/ros/xacro/issues/252>`_)
 * Contributors: Robert Haschke, G.A. vd. Hoorn
 
-1.13.7 (2020-08-09)
+1.14.4 (2020-08-09)
 -------------------
 * [fix] Rework YamlDictWrapper to restore dict properties (`#250 <https://github.com/ros/xacro/issues/250>`_)
+* [fix] Ignore underscores when parsing literal numeric values (`#247 <https://github.com/ros/xacro/issues/247>`_)
 * Contributors: Robert Haschke
 
-1.13.6 (2020-07-05)
+1.14.3 (2020-07-05)
 -------------------
 * [feature] Improve warnings
   - Unify meaning of verbosity > 0 (to print file location)
@@ -26,6 +23,25 @@ Changelog for package xacro
 * [feature] Allow dotted access to yaml-loaded dicts: d.key1.key2.key3 (`#245 <https://github.com/ros/xacro/issues/245>`_)
 * [maint]   Travis: Update distro to Bionic
 * Contributors: Robert Haschke, G.A. vd. Hoorn
+
+1.14.2 (2020-05-21)
+-------------------
+* [maintanence] Remove deprecated xacro.py (`#239 <https://github.com/ros/xacro/issues/239>`_)
+* Contributors: Shane Loretz
+
+1.14.1 (2020-03-29)
+-------------------
+* [feature]     allow optional xacro includes (`#234 <https://github.com/ros/xacro/issues/234>`_)
+* [maintanence] Use setuptools instead of distutils (`#233 <https://github.com/ros/xacro/issues/233>`_)
+* [maintanence] fix Travis: export correct ROS_PYTHON_VERSION
+* Contributors: Alejandro Hernández Cordero, Robert Haschke
+
+1.14.0 (2019-12-08)
+-------------------
+* [maintanence] Remove deprecations
+  - Require all xacro commands to be prefixed with 'xacro:'
+  - Remove options --legacy, --inorder, --check-order, --includes
+* Contributors: Robert Haschke
 
 1.13.5 (2019-12-08)
 -------------------
