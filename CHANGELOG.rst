@@ -2,11 +2,58 @@
 Changelog for package xacro
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
+2.0.4 (2020-11-15)
+------------------
+* Merge improvements of noetic branch into dashing-devel: see 1.14.5 for details
+* Append test directory to existing AMENT_PREFIX_PATH (`#260 <https://github.com/ros/xacro/issues/260>`_)
+* Contributors: Chen Bainian, Robert Haschke, G.A. vd. Hoorn
+
 1.14.5 (2020-10-13)
 -------------------
 * [fix]     yaml loading: recursively wrap lists and dicts for dotted dict access (`#258 <https://github.com/ros/xacro/issues/258>`_)
 * [feature] Provide support for yaml constructors !degrees and !radians (`#252 <https://github.com/ros/xacro/issues/252>`_)
 * Contributors: Robert Haschke, G.A. vd. Hoorn
+
+2.0.3 (2020-08-09)
+------------------
+* Merge improvements of melodic and noetic branches into dashing-devel: see 1.14.2 and 1.14.3 for details
+* Contributors: Robert Haschke
+
+2.0.2 (2020-03-29)
+------------------
+* Merge improvements of melodic and noetic branches into dashing-devel: see 1.14.1, 1.13.5 for details
+* Contributors: Robert Haschke
+
+2.0.1 (2019-10-06)
+------------------
+* Revert requiring that all xacro commands are prefixed with 'xacro:' namespace
+  Although this is deprecated since `#79 <https://github.com/ros/xacro/issues/79>`_,
+  the corresponding deprecation warning wasn't actually issued.
+  Thus, we will accept non-prefixed xacro tags until F-turtle.
+* Install to both, bin/xacro and lib/xacro/xacro
+* Contributors: Robert Haschke
+
+2.0.0 (2019-09-28)
+------------------
+* PEP8 cleanup
+  - code simplifications
+  - avoid empty except
+  - sort imports
+  - format line breaks
+* Code cleanup
+  - Removed deprecated options --legacy, --inorder, --check-order, --includes
+  - Require all xacro commands to be prefixed with 'xacro:'
+  - Added missing copyright notices
+  - Removed python2 stuff
+* Adapt Travis config to use colcon
+* Provide ROS2-based replacement for substition args
+* Modified package structure as per ROS2 rules
+  - Using ament_cmake
+  - Moved source contents from "src/xacro" to "xacro"
+  - Modified package.xml and setup.py according to ROS2 requirements
+  - Configured completion hook
+  - Removed catkin artifacts from cmake extension
+* Contributors: vandanamandlik, Jacob Perron, Robert Haschke
 
 1.14.4 (2020-08-09)
 -------------------
@@ -32,15 +79,6 @@ Changelog for package xacro
 1.14.1 (2020-03-29)
 -------------------
 * [feature]     allow optional xacro includes (`#234 <https://github.com/ros/xacro/issues/234>`_)
-* [maintanence] Use setuptools instead of distutils (`#233 <https://github.com/ros/xacro/issues/233>`_)
-* [maintanence] fix Travis: export correct ROS_PYTHON_VERSION
-* Contributors: Alejandro Hernández Cordero, Robert Haschke
-
-1.14.0 (2019-12-08)
--------------------
-* [maintanence] Remove deprecations
-  - Require all xacro commands to be prefixed with 'xacro:'
-  - Remove options --legacy, --inorder, --check-order, --includes
 * Contributors: Robert Haschke
 
 1.13.5 (2019-12-08)
