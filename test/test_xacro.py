@@ -1,3 +1,4 @@
+#! /usr/bin/env python
 # -*- coding: utf-8 -*-
 
 # Copyright (c) 2015, Open Source Robotics Foundation, Inc.
@@ -32,6 +33,8 @@
 # Authors: Stuart Glaser, William Woodall, Robert Haschke
 # Maintainer: Robert Haschke <rhaschke@techfak.uni-bielefeld.de>
 
+from __future__ import print_function
+
 import ast
 from contextlib import contextmanager
 import math
@@ -46,7 +49,10 @@ import xacro
 import xml.dom
 from xml.dom.minidom import parseString
 
-from io import StringIO
+try:
+    from cStringIO import StringIO  # Python 2.x
+except ImportError:
+    from io import StringIO  # Python 3.x
 
 # regex to match whitespace
 whitespace = re.compile(r'\s+')
@@ -453,13 +459,21 @@ class TestXacro(TestXacroCommentsIgnored):
   <xacro:foo factor="2"/><a foo="${foo}"/></a>'''
         self.assert_matches(self.quick_xacro(src), '''<a><a foo="42"/></a>''')
 
+    def test_property_in_comprehension(self):
+        src = '''<a xmlns:xacro="http://www.ros.org/wiki/xacro">
+          <xacro:property name="abc" value="${[1,2,3]}"/>
+          <xacro:property name="xyz" value="${[abc[i]*abc[i] for i in [0,1,2]]}"/>
+          ${xyz}
+        </a>'''
+        self.assert_matches(self.quick_xacro(src), '''<a>[1, 4, 9]</a>''')
+
     def test_math_ignores_spaces(self):
         src = '''<a><f v="${0.9 / 2 - 0.2}" /></a>'''
         self.assert_matches(self.quick_xacro(src), '''<a><f v="0.25" /></a>''')
 
     def test_substitution_args_find(self):
-        resolved = self.quick_xacro('''<a>$(find xacro)/test/test_xacro.py</a>''').firstChild.firstChild.data
-        self.assertEqual(os.path.realpath(resolved), os.path.realpath(__file__))
+        self.assert_matches(self.quick_xacro('''<a><f v="$(find xacro)/test/test_xacro.py" /></a>'''),
+                '''<a><f v="''' + os.path.abspath((__file__).replace(".pyc",".py") + '''" /></a>'''))
 
     def test_substitution_args_arg(self):
         res = '''<a><f v="my_arg" /></a>'''
@@ -576,7 +590,7 @@ class TestXacro(TestXacroCommentsIgnored):
   <xacro:property name="var" value="main"/>
   <xacro:include filename="include1.xacro" ns="A"/>
   <xacro:include filename="include2.xacro" ns="B"/>
-  <xacro:A.foo/><B.foo/>
+  <xacro:A.foo/><xacro:B.foo/>
   <main var="${var}" A="${2*A.var}" B="${B.var+1}"/>
 </a>'''
         res = '''
@@ -944,6 +958,12 @@ class TestXacro(TestXacroCommentsIgnored):
         self.assert_matches(self.quick_xacro('''
 <a xmlns:xacro="http://www.ros.org/wiki/xacro">
 <xacro:arg name="foo" default=""/>$(arg foo)</a>'''), '''<a/>''')
+
+    def test_broken_include_error_reporting(self):
+        self.assertRaises(xml.parsers.expat.ExpatError, self.quick_xacro,
+        '''<a xmlns:xacro="http://www.ros.org/wiki/xacro">
+           <xacro:include filename="broken.xacro"/></a>''')
+        self.assertEqual(xacro.filestack, [None, './broken.xacro'])
 
     def test_broken_input_doesnt_create_empty_output_file(self):
         # run xacro on broken input file to make sure we don't create an
@@ -1318,26 +1338,12 @@ ${u'🍔' * how_many}
         self.assert_matches(xml.dom.minidom.parse(output_path), '''<robot>🍔</robot>''')
         shutil.rmtree(tmp_dir_name)  # clean up after ourselves
 
-    def test_macro_name_clash(self):
-        src = '''<a xmlns:xacro="http://www.ros.org/wiki/xacro">
-<xacro:macro name="foo"><bar/></xacro:macro>
-<foo/></a>
-'''
-        self.assert_matches(self.quick_xacro(src, ['--xacro-ns']), '<a><foo/></a>')
-        self.assert_matches(self.quick_xacro(src), '<a><bar/></a>')
-
-    def test_process_return_value(self):
-        test_dir = os.path.abspath(os.path.dirname(__file__))
-        input_path = os.path.join(test_dir, 'emoji.xacro')
-        self.assert_matches(xacro.process(input_path), '<robot>🍔</robot>')
-
     def test_invalid_syntax(self):
         self.assertRaises(xacro.XacroException, self.quick_xacro, '<a>a${</a>')
         self.assertRaises(xacro.XacroException, self.quick_xacro, '<a>${b</a>')
         self.assertRaises(xacro.XacroException, self.quick_xacro, '<a>${{}}</a>')
         self.assertRaises(xacro.XacroException, self.quick_xacro, '<a>a$(</a>')
         self.assertRaises(xacro.XacroException, self.quick_xacro, '<a>$(b</a>')
-
 
 if __name__ == '__main__':
     unittest.main()
