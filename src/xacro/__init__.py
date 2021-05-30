@@ -169,8 +169,8 @@ global_symbols = {'__builtins__': {k: __builtins__[k] for k in
                                     'True', 'False', 'min', 'max', 'round']}}
 # also define all math symbols and functions
 global_symbols.update(math.__dict__)
-# expose load_yaml and abs_filename
-global_symbols.update(dict(load_yaml=load_yaml, abs_filename=abs_filename_spec))
+# expose load_yaml, abs_filename, and dotify
+global_symbols.update(dict(load_yaml=load_yaml, abs_filename=abs_filename_spec, dotify=YamlDictWrapper))
 
 
 class XacroException(Exception):
@@ -238,11 +238,17 @@ def eval_extension(s):
 class Table(dict):
     def __init__(self, parent=None):
         dict.__init__(self)
+        if parent is None:
+            parent = dict()  # Use empty dict to simplify lookup
         self.parent = parent
+        try:
+            self.root = parent.root  # short link to root dict / global_symbols
+            self.depth = self.parent.depth + 1  # for debugging only
+        except AttributeError:
+            self.root = parent
+            self.depth = 0
         self.unevaluated = set()  # set of unevaluated variables
         self.recursive = []  # list of currently resolved vars (to resolve recursive definitions)
-        # the following variables are for debugging / checking only
-        self.depth = self.parent.depth + 1 if self.parent else 0
 
     @staticmethod
     def _eval_literal(value):
@@ -276,7 +282,7 @@ class Table(dict):
 
         # return evaluated result
         value = dict.__getitem__(self, key)
-        if (verbosity > 2 and self.parent is None) or verbosity > 3:
+        if (verbosity > 2 and self.parent is self.root) or verbosity > 3:
             print("{indent}use {key}: {value} ({loc})".format(
                 indent=self.depth * ' ', key=key, value=value, loc=filestack[-1]), file=sys.stderr)
         return value
@@ -284,14 +290,12 @@ class Table(dict):
     def __getitem__(self, key):
         if dict.__contains__(self, key):
             return self._resolve_(key)
-        elif self.parent:
-            return self.parent[key]
         else:
-            return global_symbols[key]
+            return self.parent[key]
 
     def _setitem(self, key, value, unevaluated):
-        if key in global_symbols:
-            warning("redefining global property: %s" % key)
+        if key in self.root:
+            warning("redefining global symbol: %s" % key)
             print_location(filestack)
 
         value = self._eval_literal(value)
@@ -302,7 +306,7 @@ class Table(dict):
         elif key in self.unevaluated:
             # all other types cannot be evaluated
             self.unevaluated.remove(key)
-        if (verbosity > 2 and self.parent is None) or verbosity > 3:
+        if (verbosity > 2 and self.parent is self.root) or verbosity > 3:
             print("{indent}set {key}: {value} ({loc})".format(
                 indent=self.depth * ' ', key=key, value=value, loc=filestack[-1]), file=sys.stderr)
 
@@ -311,8 +315,7 @@ class Table(dict):
 
     def __contains__(self, key):
         return \
-            dict.__contains__(self, key) or \
-            (self.parent and key in self.parent)
+            dict.__contains__(self, key) or (key in self.parent)
 
     def __str__(self):
         s = dict.__str__(self)
@@ -321,9 +324,9 @@ class Table(dict):
             s += str(self.parent)
         return s
 
-    def root(self):
+    def top(self):
         p = self
-        while p.parent is not None:
+        while p.parent is not p.root:
             p = p.parent
         return p
 
@@ -570,7 +573,7 @@ def grab_property(elt, table):
     replace_node(elt, by=None)
 
     if scope and scope == 'global':
-        target_table = table.root()
+        target_table = table.top()
         unevaluated = False
     elif scope and scope == 'parent':
         if table.parent is not None:
@@ -691,13 +694,14 @@ def handle_macro_call(node, macros, symbols):
         raise XacroException("unknown macro name: %s" % node.tagName)
 
     # Expand the macro
-    scoped = Table(symbols)  # new local name space for macro evaluation
+    scoped_symbols = Table(symbols)  # new local name space for macro evaluation
+    scoped_macros = Table(macros)
     params = m.params[:]  # deep copy macro's params list
     for name, value in node.attributes.items():
         if name not in params:
             raise XacroException("Invalid parameter \"%s\"" % unicode(name), macro=m)
         params.remove(name)
-        scoped._setitem(name, eval_text(value, symbols), unevaluated=False)
+        scoped_symbols._setitem(name, eval_text(value, symbols), unevaluated=False)
         node.setAttribute(name, "")  # suppress second evaluation in eval_all()
 
     # Evaluate block parameters in node
@@ -710,7 +714,7 @@ def handle_macro_call(node, macros, symbols):
             if not block:
                 raise XacroException("Not enough blocks", macro=m)
             params.remove(param)
-            scoped[param] = block
+            scoped_symbols[param] = block
             block = next_sibling_element(block)
 
     if block is not None:
@@ -725,14 +729,14 @@ def handle_macro_call(node, macros, symbols):
         # get default
         name, default = m.defaultmap.get(param, (None, None))
         if name is not None or default is not None:
-            scoped._setitem(param, eval_default_arg(name, default, symbols, m), unevaluated=False)
+            scoped_symbols._setitem(param, eval_default_arg(name, default, symbols, m), unevaluated=False)
             params.remove(param)
 
     if params:
         raise XacroException("Undefined parameters [%s]" % ",".join(params), macro=m)
 
     try:
-        eval_all(body, macros, scoped)
+        eval_all(body, scoped_macros, scoped_symbols)
     except Exception as e:
         # fill in macro call history for nice error reporting
         if hasattr(e, 'macros'):
@@ -939,8 +943,8 @@ def process_doc(doc, mappings=None, **kwargs):
     if not filestack:
         restore_filestack([None])
 
-    macros = {}
-    symbols = Table()
+    macros = Table()
+    symbols = Table(global_symbols)
 
     # apply xacro:targetNamespace as global xmlns (if defined)
     targetNS = doc.documentElement.getAttribute('xacro:targetNamespace')
