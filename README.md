@@ -1,3 +1,26 @@
+## xacro (foxy) - 2.0.6-2
+
+The packages in the `xacro` repository were released into the `foxy` distro by running `/usr/bin/bloom-release --ros-distro foxy xacro` on `Tue, 01 Jun 2021 17:11:33 -0000`
+
+The `xacro` package was released.
+
+Version of package(s) in repository `xacro`:
+
+- upstream repository: https://github.com/ros/xacro.git
+- release repository: https://github.com/ros-gbp/xacro-release.git
+- rosdistro version: `2.0.6-1`
+- old version: `2.0.6-1`
+- new version: `2.0.6-2`
+
+Versions of tools used:
+
+- bloom version: `0.10.7`
+- catkin_pkg version: `0.4.23`
+- rosdep version: `0.20.1`
+- rosdistro version: `0.8.3`
+- vcstools version: `0.1.42`
+
+
 ## xacro (foxy) - 2.0.6-1
 
 The packages in the `xacro` repository were released into the `foxy` distro by running `/usr/bin/bloom-release --ros-distro foxy -e xacro` on `Sun, 30 May 2021 15:38:11 -0000`
