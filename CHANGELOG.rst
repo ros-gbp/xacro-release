@@ -2,70 +2,40 @@
 Changelog for package xacro
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-2.0.6 (2021-05-30)
-------------------
-* [feature] Expose YamlDictWrapper as dotify() to allow dotted access to any dict (`#274 <https://github.com/ros/xacro/issues/274>`_)
-* [fix]     Scoped macro evaluation (`#272 <https://github.com/ros/xacro/issues/272>`_)
+1.13.12 (2021-07-19)
+--------------------
+* Improve macro arg parsing (`#278 <https://github.com/ros/xacro/issues/278>`_) to support:
+  - $(substitution args)
+  - ${python expressions}
+  - single or double quoting of spaces
 * Contributors: Robert Haschke
 
-2.0.5 (2021-03-02)
-------------------
-* [fix]     Report correct filename for XML errors (`#268 <https://github.com/ros/xacro/issues/268>`_)
-* [fix]     Python3-compatible property Table (`#266 <https://github.com/ros/xacro/issues/266>`_)
-* [fix]     Use outer-scope symbols to resolve include filename in xacro:include (`#264 <https://github.com/ros/xacro/issues/264>`_)
-* [fix]     Append test directory to existing AMENT_PREFIX_PATH (`#260 <https://github.com/ros/xacro/issues/260>`_)
-* [fix]     yaml loading: recursively wrap lists and dicts for dotted dict access (`#258 <https://github.com/ros/xacro/issues/258>`_)
-* [feature] Provide support for yaml constructors !degrees and !radians (`#252 <https://github.com/ros/xacro/issues/252>`_)
-* Contributors: Chen Bainian, Robert Haschke, G.A. vd. Hoorn
-
-2.0.3 (2020-08-09)
-------------------
-* Merge improvements of melodic and noetic branches into dashing-devel: see 1.14.2 and 1.14.3 for details
+1.13.11 (2021-05-30)
+--------------------
+* Expose YamlDictWrapper as dotify()
 * Contributors: Robert Haschke
 
-2.0.2 (2020-03-29)
-------------------
-* Merge improvements of melodic and noetic branches into dashing-devel: see 1.14.1, 1.13.5 for details
+1.13.10 (2021-02-11)
+--------------------
+* Use outer-scope symbols to resolve include filename in xacro:include (`#264 <https://github.com/ros/xacro/issues/264>`_)
 * Contributors: Robert Haschke
 
-2.0.1 (2019-10-06)
-------------------
-* Revert requiring that all xacro commands are prefixed with 'xacro:' namespace
-  Although this is deprecated since `#79 <https://github.com/ros/xacro/issues/79>`_,
-  the corresponding deprecation warning wasn't actually issued.
-  Thus, we will accept non-prefixed xacro tags until F-turtle.
-* Install to both, bin/xacro and lib/xacro/xacro
+1.13.9 (2020-10-13)
+-------------------
+* [fix] yaml loading: recursively wrap lists and dicts for dotted dict access (`#258 <https://github.com/ros/xacro/issues/258>`_)
 * Contributors: Robert Haschke
 
-2.0.0 (2019-09-28)
-------------------
-* PEP8 cleanup
-  - code simplifications
-  - avoid empty except
-  - sort imports
-  - format line breaks
-* Code cleanup
-  - Removed deprecated options --legacy, --inorder, --check-order, --includes
-  - Require all xacro commands to be prefixed with 'xacro:'
-  - Added missing copyright notices
-  - Removed python2 stuff
-* Adapt Travis config to use colcon
-* Provide ROS2-based replacement for substition args
-* Modified package structure as per ROS2 rules
-  - Using ament_cmake
-  - Moved source contents from "src/xacro" to "xacro"
-  - Modified package.xml and setup.py according to ROS2 requirements
-  - Configured completion hook
-  - Removed catkin artifacts from cmake extension
-* Contributors: vandanamandlik, Jacob Perron, Robert Haschke
+1.13.8 (2020-08-28)
+-------------------
+* Provide support for yaml constructors !degrees and !radians (`#252 <https://github.com/ros/xacro/issues/252>`_)
+* Contributors: Robert Haschke, G.A. vd. Hoorn
 
-1.14.4 (2020-08-09)
+1.13.7 (2020-08-09)
 -------------------
 * [fix] Rework YamlDictWrapper to restore dict properties (`#250 <https://github.com/ros/xacro/issues/250>`_)
-* [fix] Ignore underscores when parsing literal numeric values (`#247 <https://github.com/ros/xacro/issues/247>`_)
 * Contributors: Robert Haschke
 
-1.14.3 (2020-07-05)
+1.13.6 (2020-07-05)
 -------------------
 * [feature] Improve warnings
   - Unify meaning of verbosity > 0 (to print file location)
@@ -74,16 +44,6 @@ Changelog for package xacro
 * [feature] Allow dotted access to yaml-loaded dicts: d.key1.key2.key3 (`#245 <https://github.com/ros/xacro/issues/245>`_)
 * [maint]   Travis: Update distro to Bionic
 * Contributors: Robert Haschke, G.A. vd. Hoorn
-
-1.14.2 (2020-05-21)
--------------------
-* [maintanence] Remove deprecated xacro.py (`#239 <https://github.com/ros/xacro/issues/239>`_)
-* Contributors: Shane Loretz
-
-1.14.1 (2020-03-29)
--------------------
-* [feature]     allow optional xacro includes (`#234 <https://github.com/ros/xacro/issues/234>`_)
-* Contributors: Robert Haschke
 
 1.13.5 (2019-12-08)
 -------------------
