@@ -170,7 +170,8 @@ def safe_eval(expr, globals, locals=None):
     invalid_names = [n for n in code.co_names if n.startswith("__")]
     if invalid_names:
         raise XacroException("Use of invalid name(s): ", ', '.join(invalid_names))
-    return eval(code, {"__builtins__": globals}, locals)
+    globals.update(__builtins__= {})  # disable default builtins
+    return eval(code, globals, locals)
 
 
 class XacroException(Exception):
