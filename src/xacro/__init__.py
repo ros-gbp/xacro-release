@@ -32,23 +32,25 @@
 
 from __future__ import print_function, division
 
+import ast
 import glob
+import math
 import os
 import re
 import sys
-import ast
-import math
+import xml.dom.minidom
 
 from copy import deepcopy
-from .color import warning, error, message
-from .xmlutils import *
 from .cli import process_args
+from .color import error, message, warning
+from .xmlutils import opt_attrs, reqd_attrs, first_child_element, \
+    next_sibling_element, replace_node
 
 
-try: # python 2
+try:  # python 2
     _basestr = basestring
-    encoding = { 'encoding': 'utf-8' }
-except NameError: # python 3
+    encoding = {'encoding': 'utf-8'}
+except NameError:  # python 3
     _basestr = str
     unicode = str
     encoding = {}
@@ -57,25 +59,16 @@ except NameError: # python 3
 substitution_args_context = {}
 
 
-# Stack of currently processed files
-filestack = []
+# Stack of currently processed files / macros
+filestack = None
+macrostack = None
 
-def push_file(filename):
-    """
-    Push a new filename to the filestack.
-    Instead of directly modifying filestack, a deep-copy is created and modified,
-    while the old filestack is returned.
-    This allows to store the filestack that was active when a macro or property is defined
-    """
-    global filestack
-    oldstack = filestack
-    filestack = deepcopy(filestack)
-    filestack.append(filename)
-    return oldstack
 
-def restore_filestack(oldstack):
+def init_stacks(file):
     global filestack
-    filestack = oldstack
+    global macrostack
+    filestack = [file]
+    macrostack = []
 
 
 def abs_filename_spec(filename_spec):
@@ -100,7 +93,7 @@ class YamlListWrapper(list):
             return YamlDictWrapper(item)
         elif isinstance(item, list):
             return YamlListWrapper(item)
-        else: # scalar
+        else:  # scalar
             return item
 
     def __getitem__(self, idx):
@@ -122,7 +115,7 @@ def construct_angle_radians(loader, node):
     """utility function to construct radian values from yaml"""
     value = loader.construct_scalar(node)
     try:
-        return float(safe_eval(value, global_symbols))
+        return float(safe_eval(value, _global_symbols))
     except SyntaxError:
         raise XacroException("invalid expression: %s" % value)
 
@@ -137,32 +130,103 @@ def load_yaml(filename):
         import yaml
         yaml.SafeLoader.add_constructor(u'!radians', construct_angle_radians)
         yaml.SafeLoader.add_constructor(u'!degrees', construct_angle_degrees)
-    except:
+    except Exception:
         raise XacroException("yaml support not available; install python-yaml")
 
     filename = abs_filename_spec(filename)
     f = open(filename)
-    oldstack = push_file(filename)
+    filestack.append(filename)
     try:
         return YamlListWrapper.wrap(yaml.safe_load(f))
     finally:
         f.close()
-        restore_filestack(oldstack)
+        filestack.pop()
         global all_includes
         all_includes.append(filename)
 
 
-# global symbols dictionary
+def tokenize(s, sep=',; ', skip_empty=True):
+    results = re.split('[{}]'.format(sep), s)
+    if skip_empty:
+        return [item for item in results if item]
+    else:
+        return results
+
+
+# create global symbols dictionary
 # taking simple security measures to forbid access to __builtins__
 # only the very few symbols explicitly listed are allowed
 # for discussion, see: http://nedbatchelder.com/blog/201206/eval_really_is_dangerous.html
-global_symbols = {k: __builtins__[k] for k in
-                    ['list', 'dict', 'map', 'set', 'len', 'str', 'float', 'int',
-                     'True', 'False', 'min', 'max', 'round', 'sorted']}
-# also define all math symbols and functions
-global_symbols.update({k: v for k, v in math.__dict__.items() if not k.startswith('_')})
-# expose load_yaml, abs_filename, and dotify
-global_symbols.update(dict(load_yaml=load_yaml, abs_filename=abs_filename_spec, dotify=YamlDictWrapper))
+def create_global_symbols():
+    result = dict()
+
+    def deprecate(f, msg):
+        def wrapper(*args, **kwargs):
+            warning(msg)
+            return f(*args, **kwargs)
+
+        return wrapper if msg else f
+
+    def expose(*args, **kwargs):
+        # Extract args from kwargs
+        source, ns, deprecate_msg = (kwargs.pop(key, None) for key in ['source', 'ns', 'deprecate_msg'])
+
+        addons = dict()
+        if source is not None:
+            addons.update([(key, source[key]) for key in args])  # Add list of symbol names from source
+        else:
+            addons.update(*args)  # Add from list of (key, value) pairs
+        addons.update(**kwargs)  # Add key=value arguments
+
+        if ns is not None:  # Wrap dict into a namespace
+            try:  # Retrieve namespace target dict
+                target = result[ns]
+            except KeyError:  # or create if not existing yet
+                target = MacroNameSpace()
+                result.update([(ns, target)])
+            target.update(addons)  # Populate target dict
+
+            if deprecate_msg is not None:  # Also import directly, but with deprecation warning
+                result.update([(key, deprecate(f, deprecate_msg.format(name=key, ns=ns))) for key, f in addons.items()])
+        else:
+            result.update(addons)  # Import directly
+
+    deprecate_msg = 'Using {name}() directly is deprecated. Use {ns}.{name}() instead.'
+    # This is the list of symbols we have exposed for years now. Continue exposing them directly
+    expose('list', 'dict', 'map', 'len', 'str', 'float', 'int', 'True', 'False', 'min', 'max', 'round',
+           source=__builtins__)
+    # These few were only recently added. The should move into python namespace, but (with a deprecation msg) stay global for now
+    expose('sorted', 'range', source=__builtins__, ns='python', deprecate_msg=deprecate_msg)
+    # Expose all builtin symbols into the python namespace. Thus the stay accessible if the global symbol was overriden
+    expose('list', 'dict', 'map', 'len', 'str', 'float', 'int', 'True', 'False', 'min', 'max', 'round',
+           'all', 'any', 'complex', 'divmod', 'enumerate', 'filter', 'frozenset', 'hash', 'isinstance', 'issubclass',
+           'ord', 'repr', 'reversed', 'slice', 'set', 'sum', 'tuple', 'type', 'zip', source=__builtins__, ns='python')
+
+    # Expose all math symbols and functions into namespace math (and directly for backwards compatibility -- w/o deprecation)
+    expose([(k, v) for k, v in math.__dict__.items() if not k.startswith('_')], ns='math', deprecate_msg='')
+
+    # Expose load_yaml, abs_filename, and dotify into namespace xacro (and directly with deprecation)
+    expose(load_yaml=load_yaml, abs_filename=abs_filename_spec, dotify=YamlDictWrapper,
+           ns='xacro', deprecate_msg=deprecate_msg)
+
+    def message_adapter(f):
+        def wrapper(*args, **kwargs):
+            location = kwargs.pop('print_location', f.__name__ in ['warning', 'error'])
+            kwargs.pop('file', None)  # Don't forward a file argument
+            f(*args, **kwargs)
+            if location:
+                print_location()
+            return ''  # Return empty string instead of None
+        return wrapper
+
+    def fatal(*args):
+        raise XacroException(' '.join(map(str, args)))
+
+    # Expose xacro's message functions
+    expose([(f.__name__, message_adapter(f)) for f in [message, warning, error, print_location]], ns='xacro')
+    expose(fatal=fatal, tokenize=tokenize, ns='xacro')
+
+    return result
 
 
 def safe_eval(expr, globals, locals=None):
@@ -180,6 +244,7 @@ class XacroException(Exception):
     its error message: prefixing with msg and suffixing with suffix.
     str(e) finally prints: msg str(exc) suffix
     """
+
     def __init__(self, msg=None, suffix=None, exc=None, macro=None):
         super(XacroException, self).__init__(msg)
         self.suffix = suffix
@@ -192,6 +257,7 @@ class XacroException(Exception):
 
 
 verbosity = 1
+
 
 def check_attrs(tag, required, optional):
     """
@@ -208,19 +274,19 @@ def check_attrs(tag, required, optional):
     if extra:
         warning("%s: unknown attribute(s): %s" % (tag.nodeName, ', '.join(extra)))
         if verbosity > 0:
-            print_location(filestack)
+            print_location()
     return result
 
 
 # deprecate non-namespaced use of xacro tags (issues #41, #59, #60)
-def deprecated_tag(tag_name = None, _issued=[False]):
+def deprecated_tag(tag_name=None, _issued=[False]):
     if _issued[0]:
         return
 
     _issued[0] = True
     warning("Deprecated: xacro tag '{}' w/o 'xacro:' xml namespace prefix (will be forbidden in Noetic)".format(tag_name))
     if verbosity > 0:
-        print_location(filestack)
+        print_location()
         message("""Use the following command to fix incorrect tag usage:
 find . -iname "*.xacro" | xargs sed -i 's#<\([/]\\?\)\(if\|unless\|include\|arg\|property\|macro\|insert_block\)#<\\1xacro:\\2#g'""")
         print(file=sys.stderr)
@@ -268,7 +334,9 @@ def eval_extension(s):
         raise XacroException("resource not found:", exc=e)
 
 
-do_check_order=False
+do_check_order = False
+
+
 class Table(object):
     def __init__(self, parent=None):
         self.parent = parent
@@ -279,8 +347,8 @@ class Table(object):
         self.depth = self.parent.depth + 1 if self.parent else 0
         if do_check_order:
             # this is for smooth transition from deprecated to in-order processing
-            self.used = set() # set of used properties
-            self.redefined = dict() # set of properties redefined after usage
+            self.used = set()  # set of used properties
+            self.redefined = dict()  # set of properties redefined after usage
 
     @staticmethod
     def _eval_literal(value):
@@ -290,7 +358,7 @@ class Table(object):
                 return value[1:-1]
             # try to evaluate as number literal or boolean
             # this is needed to handle numbers in property definitions as numbers, not strings
-            for f in [int, float, lambda x: get_boolean_value(x, None)]: # order of types is important!
+            for f in [int, float, lambda x: get_boolean_value(x, None)]:  # order of types is important!
                 try:
                     return f(value)
                 except:
@@ -301,8 +369,9 @@ class Table(object):
         # lazy evaluation
         if key in self.unevaluated:
             if key in self.recursive:
-                raise XacroException("recursive variable definition: %s" %
-                                     " -> ".join(self.recursive + [key]))
+                raise XacroException('circular variable definition: {}\n'
+                                     'Consider disabling lazy evaluation via lazy_eval="false"'
+                                     .format(" -> ".join(self.recursive + [key])))
             self.recursive.append(key)
             self.table[key] = self._eval_literal(eval_text(self.table[key], self))
             self.unevaluated.remove(key)
@@ -329,9 +398,9 @@ class Table(object):
         if do_check_order and key in self.used and key not in self.redefined:
             self.redefined[key] = filestack[-1]
 
-        if key in global_symbols:
+        if key in _global_symbols:
             warning("redefining global symbol: %s" % key)
-            print_location(filestack)
+            print_location()
 
         value = self._eval_literal(value)
         self.table[key] = value
@@ -347,6 +416,13 @@ class Table(object):
 
     def __setitem__(self, key, value):
         self._setitem(key, value, unevaluated=True)
+
+    def __delitem__(self, key):
+        # Remove all items up to root
+        p = self
+        while p is not None:
+            p.table.pop(key, None)
+            p = p.parent
 
     def __contains__(self, key):
         return \
@@ -366,14 +442,20 @@ class Table(object):
             p = p.parent
         return p
 
+
 class NameSpace(object):
     # dot access (namespace.property) is forwarded to getitem()
     def __getattr__(self, item):
-        return self.__getitem__(item)
+        try:
+            return self.__getitem__(item)
+        except KeyError:
+            raise NameError("name '{}' is not defined".format(item))
+
 
 class PropertyNameSpace(Table, NameSpace):
     def __init__(self, parent=None):
         super(PropertyNameSpace, self).__init__(parent)
+
 
 class MacroNameSpace(dict, NameSpace):
     def __init__(self, *args, **kwargs):
@@ -417,7 +499,6 @@ class QuickLexer(object):
 
 
 all_includes = []
-
 include_no_matches_msg = """Include tag's filename spec \"{}\" matched no files."""
 
 
@@ -475,8 +556,8 @@ def import_xml_namespaces(parent, attributes):
             if oldAttr and oldAttr.value != value:
                 warning("inconsistent namespace redefinitions for {name}:"
                         "\n old: {old}\n new: {new} ({new_file})".format(
-                    name=name, old=oldAttr.value, new=value,
-                    new_file=filestack[-1]))
+                            name=name, old=oldAttr.value, new=value,
+                            new_file=filestack[-1]))
             else:
                 parent.setAttribute(name, value)
 
@@ -498,11 +579,11 @@ def process_include(elt, macros, symbols, func):
     if first_child_element(elt):
         warning("Child elements of a <xacro:include> tag are ignored")
         if verbosity > 0:
-            print_location(filestack)
+            print_location()
 
     for filename in get_include_files(filename_spec, symbols):
         # extend filestack
-        oldstack = push_file(filename)
+        filestack.append(filename)
         include = parse(None, filename).documentElement
 
         # recursive call to func
@@ -511,7 +592,7 @@ def process_include(elt, macros, symbols, func):
         import_xml_namespaces(elt.parentNode, include.attributes)
 
         # restore filestack
-        restore_filestack(oldstack)
+        filestack.pop()
 
     remove_previous_comments(elt)
     # replace the include tag with the nodes of the included file(s)
@@ -569,7 +650,8 @@ def parse_macro_arg(s):
     if m:
         # there is a default value specified for param
         param, forward, default, rest = m.groups()
-        if not default: default = None
+        if not default:
+            default = None
         return param, (param if forward else None, default), rest
     else:
         # there is no default specified at all
@@ -593,7 +675,7 @@ def grab_macro(elt, macros):
     # fetch existing or create new macro definition
     macro = macros.get(name, Macro())
     # append current filestack to history
-    macro.history.append(filestack)
+    macro.history.append(deepcopy(filestack))
     macro.body = elt
 
     # parse params and their defaults
@@ -627,11 +709,21 @@ def grab_property(elt, table):
     assert(elt.tagName in ['property', 'xacro:property'])
     remove_previous_comments(elt)
 
-    name, value, default, scope = check_attrs(elt, ['name'], ['value', 'default', 'scope'])
+    name, value, default, remove, scope, lazy_eval = \
+        check_attrs(elt, ['name'], ['value', 'default', 'remove', 'scope', 'lazy_eval'])
+    name = eval_text(name, table)  # Allow name to be evaluated from expression
     if not is_valid_name(name):
         raise XacroException('Property names must be valid python identifiers: ' + name)
-    if value is not None and default is not None:
-        raise XacroException('Property cannot define both a default and a value: ' + name)
+    if name.startswith('__'):
+        raise XacroException('Property names must not start with double underscore:' + name)
+    remove = get_boolean_value(eval_text(remove or 'false', table), remove)
+    if sum([value is not None, default is not None, remove]) > 1:
+        raise XacroException('Property attributes default, value, and remove are mutually exclusive: ' + name)
+
+    if remove and name in table:
+        del table[name]
+        replace_node(elt, by=None)
+        return
 
     if default is not None:
         if scope is not None:
@@ -648,24 +740,26 @@ def grab_property(elt, table):
 
     replace_node(elt, by=None)
 
+    # We use lazy evaluation by default
+    lazy_eval = get_boolean_value(eval_text(lazy_eval or 'true', table), lazy_eval)
+
     if scope and scope == 'global':
         target_table = table.root()
-        unevaluated = False
+        lazy_eval = False
     elif scope and scope == 'parent':
         if table.parent:
             target_table = table.parent
-            unevaluated = False
+            lazy_eval = False
         else:
             warning("%s: no parent scope at global scope " % name)
-            return # cannot store the value, no reason to evaluate it
+            return  # cannot store the value, no reason to evaluate it
     else:
         target_table = table
-        unevaluated = True
 
-    if not unevaluated and isinstance(value, _basestr):
-        value = eval_text(value, table)
+    if not lazy_eval and isinstance(value, _basestr):
+        value = eval_text(value, table)  # greedily eval value
 
-    target_table._setitem(name, value, unevaluated=unevaluated)
+    target_table._setitem(name, value, unevaluated=lazy_eval)
 
 
 # Fill the table of the properties
@@ -675,8 +769,9 @@ def grab_properties(elt, table):
         next = next_sibling_element(elt)
         if elt.tagName in ['property', 'xacro:property'] \
                 and check_deprecated_tag(elt.tagName):
-            if "default" in elt.attributes.keys():
-                raise XacroException('default property value supported with in-order option only')
+            for name in ['default', 'remove']:
+                if name in elt.attributes.keys():
+                    raise XacroException('Property attribute {} supported with in-order option only'.format(name))
             grab_property(elt, table)
         else:
             grab_properties(elt, table)
@@ -684,21 +779,21 @@ def grab_properties(elt, table):
         elt = next
 
 
-LEXER = QuickLexer(DOLLAR_DOLLAR_BRACE=r"^\$\$+(\{|\()", # multiple $ in a row, followed by { or (
-                   EXPR=r"^\$\{[^\}]*\}",       # stuff starting with ${
-                   EXTENSION=r"^\$\([^\)]*\)",  # stuff starting with $(
-                   TEXT=r"[^$]+|\$[^{($]+|\$$") # any text w/o $  or  $ following any chars except {($  or  single $
+LEXER = QuickLexer(DOLLAR_DOLLAR_BRACE=r"^\$\$+(\{|\()",  # multiple $ in a row, followed by { or (
+                   EXPR=r"^\$\{[^\}]*\}",        # stuff starting with ${
+                   EXTENSION=r"^\$\([^\)]*\)",   # stuff starting with $(
+                   TEXT=r"[^$]+|\$[^{($]+|\$$")  # any text w/o $  or  $ following any chars except {($  or  single $
 
 
 # evaluate text and return typed value
 def eval_text(text, symbols):
     def handle_expr(s):
         try:
-            return safe_eval(eval_text(s, symbols), global_symbols, symbols)
+            return safe_eval(eval_text(s, symbols), _global_symbols, symbols)
         except Exception as e:
             # re-raise as XacroException to add more context
             raise XacroException(exc=e,
-                suffix=os.linesep + "when evaluating expression '%s'" % s)
+                                 suffix=os.linesep + "when evaluating expression '%s'" % s)
 
     def handle_extension(s):
         return eval_extension("$(%s)" % eval_text(s, symbols))
@@ -747,9 +842,10 @@ def handle_dynamic_macro_call(node, macros, symbols):
     node.tagName = 'xacro:' + name
     # forward to handle_macro_call
     try:
-    	return handle_macro_call(node, macros, symbols)
+        return handle_macro_call(node, macros, symbols)
     except KeyError:
         raise XacroException("unknown macro name '%s' in xacro:call" % name)
+
 
 def resolve_macro(fullname, macros):
     # split name into namespaces and real name
@@ -792,14 +888,16 @@ def handle_macro_call(node, macros, symbols):
             return handle_dynamic_macro_call(node, macros, symbols)
         return False  # no macro
 
+    macrostack.append(m)
+
     # Expand the macro
-    scoped = Table(symbols)  # new local name space for macro evaluation
+    scoped_symbols = Table(symbols)  # new local name space for macro evaluation
     params = m.params[:]  # deep copy macro's params list
     for name, value in node.attributes.items():
         if name not in params:
             raise XacroException("Invalid parameter \"%s\"" % unicode(name), macro=m)
         params.remove(name)
-        scoped._setitem(name, eval_text(value, symbols), unevaluated=False)
+        scoped_symbols._setitem(name, eval_text(value, symbols), unevaluated=False)
         node.setAttribute(name, "")  # suppress second evaluation in eval_all()
 
     # Evaluate block parameters in node
@@ -812,7 +910,7 @@ def handle_macro_call(node, macros, symbols):
             if not block:
                 raise XacroException("Not enough blocks", macro=m)
             params.remove(param)
-            scoped[param] = block
+            scoped_symbols[param] = block
             block = next_sibling_element(block)
 
     if block is not None:
@@ -821,30 +919,28 @@ def handle_macro_call(node, macros, symbols):
     # Try to load defaults for any remaining non-block parameters
     for param in params[:]:
         # block parameters are not supported for defaults
-        if param[0] == '*': continue
+        if param[0] == '*':
+            continue
 
         # get default
-        name, default = m.defaultmap.get(param, (None,None))
+        name, default = m.defaultmap.get(param, (None, None))
         if name is not None or default is not None:
-            scoped._setitem(param, eval_default_arg(name, default, symbols, m), unevaluated=False)
+            scoped_symbols._setitem(param, eval_default_arg(name, default, symbols, m), unevaluated=False)
             params.remove(param)
 
     if params:
         raise XacroException("Undefined parameters [%s]" % ",".join(params), macro=m)
 
-    try:
-        eval_all(body, macros, scoped)
-    except Exception as e:
-        # fill in macro call history for nice error reporting
-        if hasattr(e, 'macros'):
-            e.macros.append(m)
-        else:
-            e.macros = [m]
-        raise
+    eval_all(body, macros, scoped_symbols)
 
-    # Replaces the macro node with the expansion
+    # Remove any comments directly before the macro call
     remove_previous_comments(node)
+    # Lift all namespace attributes from the expanded body node to node's parent
+    import_xml_namespaces(node.parentNode, body.attributes)
+    # Replaces the macro node with the expansion
     replace_node(node, by=body, content_only=True)
+
+    macrostack.pop()
     return True
 
 
@@ -862,17 +958,22 @@ def get_boolean_value(value, condition):
     """
     try:
         if isinstance(value, _basestr):
-            if value == 'true' or value == 'True': return True
-            elif value == 'false' or value == 'False': return False
-            else: return bool(int(value))
+            if value == 'true' or value == 'True':
+                return True
+            elif value == 'false' or value == 'False':
+                return False
+            else:
+                return bool(int(value))
         else:
             return bool(value)
-    except:
+    except Exception:
         raise XacroException("Xacro conditional \"%s\" evaluated to \"%s\", "
                              "which is not a boolean expression." % (condition, value))
 
 
 _empty_text_node = xml.dom.minidom.getDOMImplementation().createDocument(None, "dummy", None).createTextNode('\n\n')
+
+
 def remove_previous_comments(node):
     """remove consecutive comments in front of the xacro-specific node"""
     next = node.nextSibling
@@ -889,7 +990,8 @@ def remove_previous_comments(node):
         else:
             # insert empty text node to stop removing of comments in future calls
             # actually this moves the singleton instance to the new location
-            if next and _empty_text_node != next: node.parentNode.insertBefore(_empty_text_node, next)
+            if next and _empty_text_node != next:
+                node.parentNode.insertBefore(_empty_text_node, next)
             return
 
 
@@ -1018,7 +1120,7 @@ def parse(inp, filename=None):
         except IOError as e:
             # do not report currently processed file as "in file ..."
             filestack.pop()
-            raise XacroException(e.strerror + ": " + e.filename)
+            raise XacroException(e.strerror + ": " + e.filename, exc=e)
 
     try:
         if isinstance(inp, _basestr):
@@ -1047,7 +1149,8 @@ def process_doc(doc,
     allow_non_prefixed_tags = xacro_ns
 
     # if not yet defined: initialize filestack
-    if not filestack: restore_filestack([None])
+    if not filestack:
+        init_stacks(None)
 
     # inorder processing requires to process the whole document for deps too
     # because filenames might be specified via properties or macro parameters
@@ -1100,25 +1203,26 @@ def open_output(output_filename):
             raise XacroException("Failed to open output:", exc=e)
 
 
-def print_location(filestack, err=None, file=sys.stderr):
-    macros = getattr(err, 'macros', []) if err else []
+def print_location():
     msg = 'when instantiating macro:'
-    for m in macros:
+    for m in reversed(macrostack or []):
         name = m.body.getAttribute('name')
-        location = '(%s)' % m.history[-1][-1]
-        print(msg, name, location, file=file)
+        location = '({file})'.format(file = m.history[-1][-1] or '???')
+        print(msg, name, location, file=sys.stderr)
         msg = 'instantiated from:'
 
-    msg = 'in file:' if macros else 'when processing file:'
-    for f in reversed(filestack):
-        if f is None: f = 'string'
-        print(msg, f, file=file)
+    msg = 'in file:' if macrostack else 'when processing file:'
+    for f in reversed(filestack or []):
+        if f is None:
+            f = 'string'
+        print(msg, f, file=sys.stderr)
         msg = 'included from:'
+
 
 def process_file(input_file_name, **kwargs):
     """main processing pipeline"""
     # initialize file stack for error-reporting
-    restore_filestack([input_file_name])
+    init_stacks(input_file_name)
     # parse the document into a xml.dom tree
     doc = parse(None, input_file_name)
     # perform macro replacement
@@ -1136,6 +1240,10 @@ def process_file(input_file_name, **kwargs):
 
     return doc
 
+
+_global_symbols = create_global_symbols()
+
+
 def main():
     opts, input_file_name = process_args(sys.argv[1:])
     try:
@@ -1148,8 +1256,8 @@ def main():
     except xml.parsers.expat.ExpatError as e:
         error("XML parsing error: %s" % unicode(e), alt_text=None)
         if verbosity > 0:
-            print_location(filestack, e)
-            print(file=sys.stderr) # add empty separator line before error
+            print_location()
+            print(file=sys.stderr)  # add empty separator line before error
             print("Check that:", file=sys.stderr)
             print(" - Your XML is well-formed", file=sys.stderr)
             print(" - You have the xacro xmlns declaration:",
@@ -1158,10 +1266,11 @@ def main():
 
     except Exception as e:
         msg = unicode(e)
-        if not msg: msg = repr(e)
+        if not msg:
+            msg = repr(e)
         error(msg)
         if verbosity > 0:
-            print_location(filestack, e)
+            print_location()
         if verbosity > 1:
             print(file=sys.stderr)  # add empty separator line before error
             raise  # create stack trace
