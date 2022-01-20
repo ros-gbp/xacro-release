@@ -182,7 +182,7 @@ def create_global_symbols():
             try:  # Retrieve namespace target dict
                 target = result[ns]
             except KeyError:  # or create if not existing yet
-                target = MacroNameSpace()
+                target = NameSpace()
                 result.update([(ns, target)])
             target.update(addons)  # Populate target dict
 
@@ -208,6 +208,7 @@ def create_global_symbols():
     # Expose load_yaml, abs_filename, and dotify into namespace xacro (and directly with deprecation)
     expose(load_yaml=load_yaml, abs_filename=abs_filename_spec, dotify=YamlDictWrapper,
            ns='xacro', deprecate_msg=deprecate_msg)
+    expose(arg=lambda name: substitution_args_context['arg'][name], ns='xacro')
 
     def message_adapter(f):
         def wrapper(*args, **kwargs):
@@ -407,23 +408,16 @@ class Table(dict):
         return p
 
 
-class NameSpace(object):
+class NameSpace(Table):
+    def __init__(self, parent=None):
+        super(NameSpace, self).__init__(parent)
+
     # dot access (namespace.property) is forwarded to getitem()
     def __getattr__(self, item):
         try:
             return self.__getitem__(item)
         except KeyError:
             raise NameError("name '{}' is not defined".format(item))
-
-
-class PropertyNameSpace(Table, NameSpace):
-    def __init__(self, parent=None):
-        super(PropertyNameSpace, self).__init__(parent)
-
-
-class MacroNameSpace(dict, NameSpace):
-    def __init__(self, *args, **kwargs):
-        super(MacroNameSpace, self).__init__(*args, **kwargs)
 
 
 class QuickLexer(object):
@@ -510,8 +504,8 @@ def process_include(elt, macros, symbols, func):
     if namespace_spec:
         try:
             namespace_spec = eval_text(namespace_spec, symbols)
-            macros[namespace_spec] = ns_macros = MacroNameSpace()
-            symbols[namespace_spec] = ns_symbols = PropertyNameSpace()
+            macros[namespace_spec] = ns_macros = NameSpace()
+            symbols[namespace_spec] = ns_symbols = NameSpace()
         except TypeError:
             raise XacroException('namespaces are supported with in-order option only')
     else:
@@ -751,23 +745,24 @@ def handle_dynamic_macro_call(node, macros, symbols):
     return True
 
 
-def resolve_macro(fullname, macros):
+def resolve_macro(fullname, macros, symbols):
     # split name into namespaces and real name
     namespaces = fullname.split('.')
     name = namespaces.pop(-1)
 
-    def _resolve(namespaces, name, macros):
-        # traverse namespaces to actual macros dict
+    def _resolve(namespaces, name, macros, symbols):
+        # traverse namespaces to actual macros+symbols dicts
         for ns in namespaces:
             macros = macros[ns]
-        return macros[name]
+            symbols = symbols[ns]
+        return macros, symbols, macros[name]
 
     # try fullname and (namespaces, name) in this order
     try:
-        return _resolve([], fullname, macros)
+        return _resolve([], fullname, macros, symbols)
     except KeyError:
         if namespaces:
-            return _resolve(namespaces, name, macros)
+            return _resolve(namespaces, name, macros, symbols)
         else:
             raise
 
@@ -780,7 +775,7 @@ def handle_macro_call(node, macros, symbols):
 
     name = node.tagName[6:]  # drop 'xacro:' prefix
     try:
-        m = resolve_macro(name, macros)
+        macros, symbols, m = resolve_macro(name, macros, symbols)
         body = m.body.cloneNode(deep=True)
 
     except KeyError:
@@ -830,7 +825,7 @@ def handle_macro_call(node, macros, symbols):
     if params:
         raise XacroException("Undefined parameters [%s]" % ",".join(params), macro=m)
 
-    eval_all(body, macros, scoped_symbols)
+    eval_all(body, scoped_macros, scoped_symbols)
 
     # Remove any comments directly before the macro call
     remove_previous_comments(node)
@@ -987,8 +982,7 @@ def eval_all(node, macros, symbols):
             else:
                 eval_all(node, macros, symbols)
 
-        # TODO: Also evaluate content of COMMENT_NODEs?
-        elif node.nodeType == xml.dom.Node.TEXT_NODE:
+        elif node.nodeType == xml.dom.Node.TEXT_NODE or node.nodeType == xml.dom.Node.COMMENT_NODE:
             node.data = unicode(eval_text(node.data, symbols))
 
         node = next
