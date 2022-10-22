@@ -2,7 +2,12 @@
 Changelog for package xacro
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-1.14.13 (2022-02-12)
+1.13.18 (2022-10-21)
+--------------------
+* Dotted YAML access from list iterator (`#318 <https://github.com/ros/xacro/issues/318>`_)
+* Contributors: Robert Haschke
+
+1.13.17 (2022-02-12)
 --------------------
 * Only optionally activate comment evaluation (`#310 <https://github.com/ros/xacro/issues/310>`_)
 
@@ -29,26 +34,22 @@ Changelog for package xacro
 
 * Contributors: Robert Haschke
 
-1.14.12 (2022-01-30)
+1.13.16 (2022-01-30)
 --------------------
 * Issue a warning only for evaluation errors in comments
 * Add LICENSE file
 * Contributors: Robert Haschke
 
-1.14.11 (2022-01-20)
+1.13.15 (2022-01-20)
 --------------------
 * Fix resolving of macros and properties declared and used in/from a namespace (`#297 <https://github.com/ros/xacro/issues/297>`_, `#306 <https://github.com/ros/xacro/issues/306>`_)
 
   Macros and properties that are declared within a namespaced include shouldn't require the namespace prefix when used within the namespace.
 * Perform expression evaluation in comments (`#300 <https://github.com/ros/xacro/issues/300>`_)
-* Expose ``xacro.arg()`` to facilitate access to substitution args
-* Fix scoped macro evaluation
-
-  * Replace ``[Macro|Property]NameSpace`` with common ``NameSpace`` class derived from ``Table``
-  * Use the scoped macro Table
+* Expose xacro.arg() to facilitate access to substitution args
 * Contributors: Robert Haschke
 
-1.14.10 (2021-10-02)
+1.13.14 (2021-10-02)
 --------------------
 * Allow property names to be evaluated from an expression
   This allows to turn macros into a function that can compute an arbitrary property::
@@ -91,8 +92,8 @@ Changelog for package xacro
   * Rework definition of ``global_symbols`` to expose functions into namespaces python, math, xacro
 * Contributors: Robert Haschke
 
-1.14.9 (2021-09-03)
--------------------
+1.13.13 (2021-09-03)
+--------------------
 * Allow more builtin symbols: sorted, set
 * Don't import hidden symbols from math package
 * Fix ``eval()`` security vulnerability
@@ -102,8 +103,8 @@ Changelog for package xacro
 * Generalize yaml ``!degrees`` constructor: Enable expressions as well
 * Contributors: Robert Haschke
 
-1.14.8 (2021-07-19)
--------------------
+1.13.12 (2021-07-19)
+--------------------
 * Improve macro arg parsing (`#278 <https://github.com/ros/xacro/issues/278>`_) to support:
 
   - ``$(substitution args)``
@@ -111,32 +112,32 @@ Changelog for package xacro
   - single or double quoting of spaces
 * Contributors: Robert Haschke
 
-1.14.7 (2021-05-30)
--------------------
-* [feature] Expose YamlDictWrapper as dotify() to allow dotted access to any dict (`#274 <https://github.com/ros/xacro/issues/274>`_)
-* [fix]     Scoped macro evaluation (`#272 <https://github.com/ros/xacro/issues/272>`_)
+1.13.11 (2021-05-30)
+--------------------
+* Expose YamlDictWrapper as dotify()
 * Contributors: Robert Haschke
 
-1.14.6 (2021-03-02)
--------------------
-* [fix] Report correct filename for XML errors (`#268 <https://github.com/ros/xacro/issues/268>`_)
-* [fix] Python3-compatible property Table (`#266 <https://github.com/ros/xacro/issues/266>`_)
-* [fix] Use outer-scope symbols to resolve include filename in ``xacro:include`` (`#264 <https://github.com/ros/xacro/issues/264>`_)
+1.13.10 (2021-02-11)
+--------------------
+* Use outer-scope symbols to resolve include filename in xacro:include (`#264 <https://github.com/ros/xacro/issues/264>`_)
 * Contributors: Robert Haschke
 
-1.14.5 (2020-10-13)
+1.13.9 (2020-10-13)
 -------------------
-* [fix]     yaml loading: recursively wrap lists and dicts for dotted dict access (`#258 <https://github.com/ros/xacro/issues/258>`_)
-* [feature] Provide support for yaml constructors ``!degrees`` and ``!radians`` (`#252 <https://github.com/ros/xacro/issues/252>`_)
+* [fix] yaml loading: recursively wrap lists and dicts for dotted dict access (`#258 <https://github.com/ros/xacro/issues/258>`_)
+* Contributors: Robert Haschke
+
+1.13.8 (2020-08-28)
+-------------------
+* Provide support for yaml constructors !degrees and !radians (`#252 <https://github.com/ros/xacro/issues/252>`_)
 * Contributors: Robert Haschke, G.A. vd. Hoorn
 
-1.14.4 (2020-08-09)
+1.13.7 (2020-08-09)
 -------------------
 * [fix] Rework YamlDictWrapper to restore dict properties (`#250 <https://github.com/ros/xacro/issues/250>`_)
-* [fix] Ignore underscores when parsing literal numeric values (`#247 <https://github.com/ros/xacro/issues/247>`_)
 * Contributors: Robert Haschke
 
-1.14.3 (2020-07-05)
+1.13.6 (2020-07-05)
 -------------------
 * [feature] Improve warnings
 
@@ -146,26 +147,6 @@ Changelog for package xacro
 * [feature] Allow dotted access to yaml-loaded dicts: d.key1.key2.key3 (`#245 <https://github.com/ros/xacro/issues/245>`_)
 * [maint]   Travis: Update distro to Bionic
 * Contributors: Robert Haschke, G.A. vd. Hoorn
-
-1.14.2 (2020-05-21)
--------------------
-* [maintanence] Remove deprecated xacro.py (`#239 <https://github.com/ros/xacro/issues/239>`_)
-* Contributors: Shane Loretz
-
-1.14.1 (2020-03-29)
--------------------
-* [feature]     allow optional xacro includes (`#234 <https://github.com/ros/xacro/issues/234>`_)
-* [maintanence] Use setuptools instead of distutils (`#233 <https://github.com/ros/xacro/issues/233>`_)
-* [maintanence] fix Travis: export correct ROS_PYTHON_VERSION
-* Contributors: Alejandro Hernández Cordero, Robert Haschke
-
-1.14.0 (2019-12-08)
--------------------
-* [maintanence] Remove deprecations
-
-  - Require all xacro commands to be prefixed with 'xacro:'
-  - Remove options --legacy, --inorder, --check-order, --includes
-* Contributors: Robert Haschke
 
 1.13.5 (2019-12-08)
 -------------------
@@ -181,7 +162,6 @@ Changelog for package xacro
 1.13.4 (2019-09-26)
 -------------------
 * [feature] remove xmlns:xacro from processed file (`#207 <https://github.com/ros/xacro/issues/207>`_)
-
   - Remove all notions of xmlns:xacro from the resulting document.
   - If the root node defines a xacro:targetNamespace attribute, this will become the global xmlns namespace of the resulting document.
 * [feature] Add len() to allowed python functions (`#208 <https://github.com/ros/xacro/issues/208>`_)
