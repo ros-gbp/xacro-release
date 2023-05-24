@@ -1,3 +1,26 @@
+## xacro (noetic) - 1.14.16-1
+
+The packages in the `xacro` repository were released into the `noetic` distro by running `/usr/bin/bloom-release --ros-distro noetic xacro` on `Wed, 24 May 2023 10:29:36 -0000`
+
+The `xacro` package was released.
+
+Version of package(s) in repository `xacro`:
+
+- upstream repository: https://github.com/ros/xacro.git
+- release repository: https://github.com/ros-gbp/xacro-release.git
+- rosdistro version: `1.14.15-1`
+- old version: `1.14.15-1`
+- new version: `1.14.16-1`
+
+Versions of tools used:
+
+- bloom version: `0.11.2`
+- catkin_pkg version: `0.5.2`
+- rosdep version: `0.22.2`
+- rosdistro version: `0.9.0`
+- vcstools version: `0.1.42`
+
+
 ## xacro (melodic) - 1.13.20-1
 
 The packages in the `xacro` repository were released into the `melodic` distro by running `/usr/bin/bloom-release --ros-distro melodic xacro` on `Wed, 24 May 2023 10:21:59 -0000`
