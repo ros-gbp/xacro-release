@@ -207,6 +207,63 @@ def capture_stderr(function, *args, **kwargs):
     sys.stderr = old  # restore sys.stderr
 
 
+class TestTable(unittest.TestCase):
+    def test_top(self):
+        top = xacro.Table()
+        self.assertTrue(top.top() is top)
+
+        sub = xacro.Table(top)
+        self.assertTrue(sub.top() is top)
+
+    def test_contains(self):
+        top = xacro.Table(dict(a=1))
+        self.assertTrue('a' in top)
+
+        self.assertFalse('b' in top)
+        top['b'] = 2
+        self.assertTrue('b' in top)
+
+        sub = xacro.Table(top)
+        sub['c'] = 3
+        for key in ['a', 'b', 'c']:
+            self.assertTrue(key in sub)
+
+    def test_get(self):
+        top = xacro.Table(dict(a=1))
+        self.assertEqual(top['a'], 1)
+        top['b'] = 2
+        self.assertEqual(top['b'], 2)
+
+        sub = xacro.Table(top)
+        sub['c'] = 3
+        for i, key in enumerate(['a', 'b', 'c']):
+            self.assertEqual(sub[key], i+1)
+
+    def test_del(self):
+        top = xacro.Table(dict(a=1))
+        top['b'] = 2
+        sub = xacro.Table(top)
+        sub['b'] = 3
+
+        self.assertEqual(sub['b'], 3)
+        self.assertEqual(top['b'], 2)
+
+        del sub['b']
+        self.assertFalse('b' in sub)
+        self.assertFalse('b' in top)
+
+        # redefining global symbol
+        with capture_stderr(xacro.Table.__setitem__, sub, 'a', 42) as (_, output):
+            self.assertTrue('redefining global symbol: a' in output)
+        self.assertEqual(sub['a'], 42)
+        self.assertEqual(sub.parent['a'], 1)
+
+        # removing the redefine stops before globals!
+        with capture_stderr(xacro.Table.__delitem__, sub, 'a') as (_, output):
+            self.assertTrue('Cannot remove global symbol: a' in output)
+        self.assertEqual(sub['a'], 1)
+
+
 class TestUtils(unittest.TestCase):
     def test_capture_stderr(self, *args, **kwargs):
         with capture_stderr(xacro.error, 'Hello World', alt_text='') as (result, output):
@@ -319,7 +376,6 @@ class TestXacroFunctions(unittest.TestCase):
 class TestXacroBase(unittest.TestCase):
     def __init__(self, *args, **kwargs):
         super(TestXacroBase, self).__init__(*args, **kwargs)
-        self.in_order = False
         self.ignore_nodes = []
 
     def assert_matches(self, a, b):
@@ -330,7 +386,6 @@ class TestXacroBase(unittest.TestCase):
         if cli:
             opts, _ = xacro.cli.process_args(cli, require_input=False)
             args.update(vars(opts))  # initialize with cli args
-        args.update(dict(in_order=self.in_order))  # set in_order option from test class
         args.update(kwargs)  # explicit function args have highest priority
 
         doc = xacro.parse(xml)
@@ -340,9 +395,6 @@ class TestXacroBase(unittest.TestCase):
 
     def run_xacro(self, input_path, *args):
         args = list(args)
-        if not self.in_order:
-            args.append('--legacy')
-        test_dir = os.path.abspath(os.path.dirname(__file__))
         subprocess.call(['xacro', input_path] + args)
 
 
@@ -394,15 +446,8 @@ class TestXacro(TestXacroCommentsIgnored):
         src = '''<a xmlns:xacro="http://www.ros.org/wiki/xacro">
   <xacro:macro name="foo"><a name="foo"/></xacro:macro>
   <xacro:macro name="call"><a name="bar"/></xacro:macro>
-  <xacro:call/></a>'''
-        # for now we only issue a deprecated warning and expect the old behaviour
-        # resolving macro "call"
-        res = '''<a><a name="bar"/></a>'''
-        # new behaviour would be to resolve to foo of course
-        # res = '''<a xmlns:xacro="http://www.ros.org/wiki/xacro"><a name="foo"/></a>'''
-        with capture_stderr(self.quick_xacro, src) as (result, output):
-            self.assert_matches(result, res)
-            self.assertTrue("deprecated use of 'call' as macro name" in output)
+  <xacro:call macro="foo"/></a>'''
+        self.assertRaises(xacro.XacroException, self.quick_xacro, src)
 
     def test_dynamic_macro_undefined(self):
         self.assertRaises(xacro.XacroException,
@@ -447,90 +492,93 @@ class TestXacro(TestXacroCommentsIgnored):
   <xacro:macro name="m" params="foo"><b bar="${foo}"/></xacro:macro>
   <xacro:m foo="2 ${foo}"/>
 </xml>'''
-        oldOrder = '''
-<xml>
-  <b bar="1 2.0"/>
-  <b bar="2 2.0"/>
-</xml>
-'''
-        inOrder = '''
+        expected = '''
 <xml>
   <a foo="1 1.0"/>
   <b bar="2 2.0"/>
 </xml>
 '''
-        self.assert_matches(self.quick_xacro(src), inOrder if self.in_order else oldOrder)
+        self.assert_matches(self.quick_xacro(src), expected)
 
     def test_should_replace_before_macroexpand(self):
-        self.assert_matches(self.quick_xacro('''<a xmlns:xacro="http://www.ros.org/wiki/xacro">
+        src = '''<a xmlns:xacro="http://www.ros.org/wiki/xacro">
 <xacro:macro name="inner" params="*the_block">
   <in_the_inner><xacro:insert_block name="the_block" /></in_the_inner>
 </xacro:macro>
 <xacro:macro name="outer" params="*the_block">
   <in_the_outer><xacro:inner><xacro:insert_block name="the_block" /></xacro:inner></in_the_outer>
 </xacro:macro>
-<xacro:outer><woot /></xacro:outer></a>'''),
-                            '''<a><in_the_outer><in_the_inner><woot /></in_the_inner></in_the_outer></a>''')
+<xacro:outer><woot /></xacro:outer></a>'''
+        res = '''<a><in_the_outer><in_the_inner><woot /></in_the_inner></in_the_outer></a>'''
+        self.assert_matches(self.quick_xacro(src), res)
 
     def test_evaluate_macro_params_before_body(self):
-        self.assert_matches(self.quick_xacro('''<a xmlns:xacro="http://www.ros.org/wiki/xacro">
+        src = '''<a xmlns:xacro="http://www.ros.org/wiki/xacro">
   <xacro:macro name="foo" params="lst">${lst[-1]}</xacro:macro>
-  <xacro:foo lst="${[1,2,3]}"/></a>'''),
-                            '''<a>3</a>''')
+  <xacro:foo lst="${[1,2,3]}"/></a>'''
+        self.assert_matches(self.quick_xacro(src), '''<a>3</a>''')
 
     def test_macro_params_escaped_string(self):
-        self.assert_matches(self.quick_xacro('''<a xmlns:xacro="http://www.ros.org/wiki/xacro">
+        src = '''<a xmlns:xacro="http://www.ros.org/wiki/xacro">
     <xacro:macro name="foo" params="a='1 -2' c=3"><bar a="${a}" c="${c}"/></xacro:macro>
-    <xacro:foo/></a>'''),
-                            '''<a><bar a="1 -2" c="3"/></a>''')
+    <xacro:foo/></a>'''
+        self.assert_matches(self.quick_xacro(src), '''<a><bar a="1 -2" c="3"/></a>''')
 
     def test_property_replacement(self):
-        self.assert_matches(self.quick_xacro('''<a xmlns:xacro="http://www.ros.org/wiki/xacro">
+        src = '''<a xmlns:xacro="http://www.ros.org/wiki/xacro">
   <xacro:property name="foo" value="42" />
   <the_foo result="${foo}" />
-</a>'''),
-                            '''<a>
-  <the_foo result="42" />
-</a>''')
+</a>'''
+        res = '''<a><the_foo result="42"/></a>'''
+        self.assert_matches(self.quick_xacro(src), res)
 
     def test_property_scope_parent(self):
-        self.assert_matches(self.quick_xacro('''<a xmlns:xacro="http://www.ros.org/wiki/xacro">
+        src = '''<a xmlns:xacro="http://www.ros.org/wiki/xacro">
   <xacro:macro name="foo" params="factor">
   <xacro:property name="foo" value="${21*factor}" scope="parent"/>
   </xacro:macro>
-  <xacro:foo factor="2"/><a foo="${foo}"/></a>'''),
-                            '''<a><a foo="42"/></a>''')
+  <xacro:foo factor="2"/><a foo="${foo}"/></a>'''
+        self.assert_matches(self.quick_xacro(src), '''<a><a foo="42"/></a>''')
 
     def test_property_scope_global(self):
-        self.assert_matches(self.quick_xacro('''<a xmlns:xacro="http://www.ros.org/wiki/xacro">
+        src = '''<a xmlns:xacro="http://www.ros.org/wiki/xacro">
   <xacro:macro name="foo" params="factor">
     <xacro:macro name="bar">
       <xacro:property name="foo" value="${21*factor}" scope="global"/>
     </xacro:macro>
     <xacro:bar/>
   </xacro:macro>
-  <xacro:foo factor="2"/><a foo="${foo}"/></a>'''),
-                            '''<a><a foo="42"/></a>''')
+  <xacro:foo factor="2"/><a foo="${foo}"/></a>'''
+        self.assert_matches(self.quick_xacro(src), '''<a><a foo="42"/></a>''')
+
+    def test_property_in_comprehension(self):
+        src = '''<a xmlns:xacro="http://www.ros.org/wiki/xacro">
+          <xacro:property name="abc" value="${[1,2,3]}"/>
+          <xacro:property name="xyz" value="${[abc[i]*abc[i] for i in [0,1,2]]}"/>
+          ${xyz}
+        </a>'''
+        self.assert_matches(self.quick_xacro(src), '''<a>[1, 4, 9]</a>''')
 
     def test_math_ignores_spaces(self):
-        self.assert_matches(self.quick_xacro('''<a><f v="${0.9 / 2 - 0.2}" /></a>'''),
-                            '''<a><f v="0.25" /></a>''')
+        src = '''<a><f v="${0.9 / 2 - 0.2}" /></a>'''
+        self.assert_matches(self.quick_xacro(src), '''<a><f v="0.25" /></a>''')
 
     def test_substitution_args_find(self):
         self.assert_matches(self.quick_xacro('''<a><f v="$(find xacro)/test/test_xacro.py" /></a>'''),
-                            '''<a><f v="''' + os.path.abspath((__file__).replace(".pyc", ".py") + '''" /></a>'''))
+                '''<a><f v="''' + os.path.abspath((__file__).replace(".pyc",".py") + '''" /></a>'''))
 
     def test_substitution_args_arg(self):
-        self.assert_matches(self.quick_xacro('''<a><f v="$(arg sub_arg)" /></a>''', cli=['sub_arg:=my_arg']),
-                            '''<a><f v="my_arg" /></a>''')
+        res = '''<a><f v="my_arg" /></a>'''
+        self.assert_matches(self.quick_xacro('''<a><f v="$(arg sub_arg)" /></a>''', cli=['sub_arg:=my_arg']), res)
 
     def test_escaping_dollar_braces(self):
-        self.assert_matches(self.quick_xacro('''<a b="$${foo}" c="$$${foo}" d="text $${foo}" e="text $$${foo}" f="$$(pwd)" />'''),
-                            '''<a b="${foo}" c="$${foo}" d="text ${foo}" e="text $${foo}" f="$(pwd)" />''')
+        src = '''<a b="$${foo}" c="$$${foo}" d="text $${foo}" e="text $$${foo}" f="$$(pwd)" />'''
+        res = '''<a b="${foo}" c="$${foo}" d="text ${foo}" e="text $${foo}" f="$(pwd)" />'''
+        self.assert_matches(self.quick_xacro(src), res)
 
     def test_just_a_dollar_sign(self):
-        self.assert_matches(self.quick_xacro('''<a b="$" c="text $" d="text $ text"/>'''),
-                            '''<a b="$" c="text $" d="text $ text"/>''')
+        src = '''<a b="$" c="text $" d="text $ text"/>'''
+        self.assert_matches(self.quick_xacro(src), src)
 
     def test_multiple_insert_blocks(self):
         self.assert_matches(self.quick_xacro('''<a xmlns:xacro="http://www.ros.org/wiki/xacro">
@@ -617,10 +665,7 @@ class TestXacro(TestXacroCommentsIgnored):
         doc = '''<a xmlns:xacro="http://www.ros.org/xacro">
         <xacro:property name="file" value="include1.xml"/>
         <xacro:include filename="${file}" /></a>'''
-        if self.in_order:
-            self.assert_matches(self.quick_xacro(doc), '''<a><inc1/></a>''')
-        else:
-            self.assertRaises(xacro.XacroException, self.quick_xacro, doc)
+        self.assert_matches(self.quick_xacro(doc), '''<a><inc1/></a>''')
 
     def test_include_recursive(self):
         self.assert_matches(self.quick_xacro('''
@@ -644,11 +689,28 @@ class TestXacro(TestXacroCommentsIgnored):
 <a>
     <inc1/><inc2/><main var="main" A="2" B="3"/>
 </a>'''
+        self.assert_matches(self.quick_xacro(src), res)
 
-        if self.in_order:
-            self.assert_matches(self.quick_xacro(src), res)
-        else:
-            self.assertRaises(xacro.XacroException, self.quick_xacro, src)
+    def test_macro_has_new_scope(self):
+        src = '''<root xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <xacro:property name="prop" value="outer"/>
+  <xacro:macro name="foo">
+    <outer prop="${prop}"/>
+    <xacro:property name="prop" value="inner"/>
+    <xacro:macro name="foo">
+      <inner prop="${prop}"/>
+    </xacro:macro>
+    <xacro:foo/>
+  </xacro:macro>
+  <xacro:foo/>
+  <xacro:foo/>
+</root>'''
+        res = '''<root>
+  <outer prop="outer"/>
+  <inner prop="inner"/>
+  <outer prop="outer"/>
+  <inner prop="inner"/>
+</root>'''
 
     def test_boolean_if_statement(self):
         self.assert_matches(self.quick_xacro('''
@@ -731,8 +793,8 @@ class TestXacro(TestXacroCommentsIgnored):
   <xacro:if value="${'use' in var}"><bar>foo</bar></xacro:if>
 </a>'''), '''
 <a>
-<foo>bar</foo>
-<bar>foo</bar>
+  <foo>bar</foo>
+  <bar>foo</bar>
 </a>''')
 
     def test_no_evaluation(self):
@@ -1044,6 +1106,12 @@ class TestXacro(TestXacroCommentsIgnored):
 <a xmlns:xacro="http://www.ros.org/wiki/xacro">
 <xacro:arg name="foo" default="bar"/>${xacro.arg('foo')}</a>'''), '<a>bar</a>')
 
+    def test_broken_include_error_reporting(self):
+        self.assertRaises(xml.parsers.expat.ExpatError, self.quick_xacro,
+        '''<a xmlns:xacro="http://www.ros.org/wiki/xacro">
+           <xacro:include filename="broken.xacro"/></a>''')
+        self.assertEqual(xacro.filestack, [None, './broken.xacro'])
+
     def test_broken_input_doesnt_create_empty_output_file(self):
         # run xacro on broken input file to make sure we don't create an
         # empty output file
@@ -1091,6 +1159,18 @@ class TestXacro(TestXacroCommentsIgnored):
 </a>'''), '''
 <a>
   <a list="[0, 2, 2]" tuple="(0, 2, 2)" dict="{'a': 0, 'c': 2, 'b': 2}"/>
+</a>''')
+
+    def test_literals_eval(self):
+        self.assert_matches(self.quick_xacro('''
+<a xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <xacro:property name="f" value="1.23"/>
+  <xacro:property name="i" value="123"/>
+  <xacro:property name="s" value="1_2_3"/>
+  float=${f+1} int=${i+1} string=${s}
+</a>'''), '''
+<a>
+  float=2.23 int=124 string=1_2_3
 </a>''')
 
     def test_enforce_xacro_ns(self):
@@ -1195,9 +1275,9 @@ class TestXacro(TestXacroCommentsIgnored):
         src = '''<a xmlns:xacro="http://www.ros.org/wiki/xacro">${{xacro.{f}('colored', 'text', 2, 3.14)}}</a>'''
         res = '''<a/>'''
         for f in ['message', 'warning', 'error']:
-            with capture_stderr(self.quick_xacro, src.format(f=f)) as (result, output):
-                self.assert_matches(result, res)
-                self.assertTrue('colored text 2 3.14' in output)
+          with capture_stderr(self.quick_xacro, src.format(f=f)) as (result, output):
+              self.assert_matches(result, res)
+              self.assertTrue('colored text 2 3.14' in output)
         self.assertRaises(xacro.XacroException, self.quick_xacro, src.format(f='fatal'))
 
     def test_error_reporting(self):
@@ -1211,7 +1291,7 @@ class TestXacro(TestXacroCommentsIgnored):
             expected = '''when instantiating macro: inner ({file})
 instantiated from: outer ({file})
 in file: string
-'''.format(file="./raise.xacro" if self.in_order else "???")
+'''.format(file="./raise.xacro")
             self.assertEqual(output, expected)
 
     def test_xml_namespace_lifting(self):
@@ -1245,13 +1325,6 @@ in file: string
           except AssertionError as e:
             print("When evaluating\n{}".format(src.format(**src_params)))
             raise
-
-
-# test class for in-order processing
-class TestXacroInorder(TestXacro):
-    def __init__(self, *args, **kwargs):
-        super(TestXacroInorder, self).__init__(*args, **kwargs)
-        self.in_order = True
 
     def test_print_location(self):
         src = '''<a xmlns:xacro="http://www.ros.org/wiki/xacro">
@@ -1325,13 +1398,13 @@ included from: string
         self.assert_matches(self.quick_xacro(src), res)
 
     def test_dotify(self):
-        src = '''
+      src = '''
     <a xmlns:xacro="http://www.ros.org/xacro">
       <xacro:property name="settings" value="${xacro.dotify(dict(a=1, b=2))}"/>
       ${settings.a + settings.b}
     </a>'''
-        res = '''<a>3</a>'''
-        self.assert_matches(self.quick_xacro(src), res)
+      res = '''<a>3</a>'''
+      self.assert_matches(self.quick_xacro(src), res)
 
     def test_property_scope_parent_namespaced(self):
         src = '''<a xmlns:xacro="http://www.ros.org/wiki/xacro">
@@ -1434,7 +1507,7 @@ included from: string
 
     def test_yaml_custom_constructors_illegal_expr(self):
         for file in ['constructors_bad1.yaml', 'constructors_bad2.yaml']:
-            src = '''
+          src = '''
 <a xmlns:xacro="http://www.ros.org/wiki/xacro">
   <xacro:property name="values" value="${{xacro.load_yaml({file})}}"/>
   <values a="${{values.a}}" />
@@ -1445,6 +1518,21 @@ included from: string
         yaml = xacro.load_yaml('settings.yaml')
         self.assertTrue(hasattr(yaml, 'arms'))
         self.assertFalse(hasattr(yaml, 'this_key_does_not_exist'))
+
+    def test_xacro_exist_required(self):
+        src = '''
+<a xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <xacro:include filename="non-existent.xacro"/>
+</a>'''
+        self.assertRaises(xacro.XacroException, self.quick_xacro, src)
+
+    def test_xacro_exist_optional(self):
+        src = '''
+<a xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <xacro:include filename="non-existent.xacro" optional="True"/>
+</a>'''
+        res = '''<a></a>'''
+        self.assert_matches(self.quick_xacro(src), res)
 
     def test_macro_default_param_evaluation_order(self):
         src = '''<a xmlns:xacro="http://www.ros.org/wiki/xacro">
@@ -1460,21 +1548,6 @@ included from: string
         res = '''<a>
 <f val="42"/><f val="**"/></a>'''
         self.assert_matches(self.quick_xacro(src), res)
-
-    def test_check_order_warning(self):
-        src = '''<a xmlns:xacro="http://www.ros.org/wiki/xacro">
-<xacro:property name="bar" value="unused"/>
-<xacro:property name="foo" value="unused"/>
-<xacro:macro name="foo" params="arg:=${foo}">
-    <a val="${arg}"/>
-</xacro:macro>
-<xacro:foo/>
-<xacro:property name="bar" value="dummy"/>
-<xacro:property name="foo" value="21"/></a>'''
-        with capture_stderr(self.quick_xacro, src, do_check_order=True) as (result, output):
-            self.assertTrue("Document is incompatible to in-order processing." in output)
-            self.assertTrue("foo" in output)  # foo should be reported
-            self.assertTrue("bar" not in output)  # bar shouldn't be reported
 
     def test_default_property(self):
         src = '''
@@ -1553,14 +1626,6 @@ ${u'🍔' * how_many}
         self.assert_matches(xml.dom.minidom.parse(output_path), '''<robot>🍔</robot>''')
         shutil.rmtree(tmp_dir_name)  # clean up after ourselves
 
-    def test_macro_name_clash(self):
-        src = '''<a xmlns:xacro="http://www.ros.org/wiki/xacro">
-<xacro:macro name="foo"><bar/></xacro:macro>
-<foo/></a>
-'''
-        self.assert_matches(self.quick_xacro(src, ['--xacro-ns']), '<a><foo/></a>')
-        self.assert_matches(self.quick_xacro(src), '<a><bar/></a>')
-
     def test_invalid_syntax(self):
         self.assertRaises(xacro.XacroException, self.quick_xacro, '<a>a${</a>')
         self.assertRaises(xacro.XacroException, self.quick_xacro, '<a>${b</a>')
@@ -1583,16 +1648,12 @@ ${u'🍔' * how_many}
         check('default="" remove="true"', expected)
         self.assert_matches(self.quick_xacro(template.format('default="42" remove="false"')), '<a>42</a>')
 
-        expected = 'Property attribute {} supported with in-order option only'
-        for name in ['default', 'remove']:
-            check('{}="1"'.format(name), expected.format(name), in_order=False)
-
     def test_remove_property(self):
         src = '''<a xmlns:xacro="http://www.ros.org/wiki/xacro">
-	<xacro:property name="p" default="1st" />
-	<xacro:property name="p" remove="true" />
-	<xacro:property name="p" default="2nd" />
-	${p}</a>'''
+  <xacro:property name="p" default="1st" />
+  <xacro:property name="p" remove="true" />
+  <xacro:property name="p" default="2nd" />
+  ${p}</a>'''
         self.assert_matches(self.quick_xacro(src), '<a>2nd</a>')
 
 
